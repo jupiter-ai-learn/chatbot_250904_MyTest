@@ -5,6 +5,11 @@ import os
 from datetime import datetime
 import json
 from typing import List, Dict, Any
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 
 # 페이지 설정
 st.set_page_config(
@@ -175,6 +180,95 @@ def display_news_card(article: Dict[str, Any], index: int):
         if article.get('url'):
             st.markdown(f"[원문 보기]({article['url']})")
 
+def send_news_email(articles: List[Dict[str, Any]], keyword: str, recipient_email: str, sender_email: str, sender_password: str, smtp_server: str = "smtp.gmail.com", smtp_port: int = 587) -> bool:
+    """뉴스 요약을 이메일로 전송"""
+    try:
+        # 이메일 내용 생성
+        subject = f"[뉴스 요약] '{keyword}' 관련 최신 뉴스 {len(articles)}개"
+        
+        # HTML 이메일 템플릿
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .header {{ background-color: #f4f4f4; padding: 20px; text-align: center; }}
+                .news-item {{ border: 1px solid #ddd; margin: 15px 0; padding: 15px; border-radius: 5px; }}
+                .news-title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }}
+                .news-source {{ color: #7f8c8d; font-size: 14px; margin-bottom: 5px; }}
+                .news-date {{ color: #95a5a6; font-size: 12px; margin-bottom: 10px; }}
+                .news-description {{ margin-bottom: 10px; }}
+                .news-link {{ color: #3498db; text-decoration: none; }}
+                .footer {{ background-color: #f4f4f4; padding: 15px; text-align: center; margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📰 뉴스 요약 리포트</h1>
+                <p>키워드: <strong>{keyword}</strong></p>
+                <p>생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+        """
+        
+        # 각 뉴스 아이템 추가
+        for i, article in enumerate(articles, 1):
+            title = article.get('title', '제목 없음')
+            source = article.get('source', {}).get('name', '출처 불명')
+            description = truncate_text(article.get('description', '내용 없음'), 200)
+            url = article.get('url', '#')
+            published_at = article.get('publishedAt', '')
+            
+            # 날짜 포맷팅
+            formatted_date = ''
+            if published_at:
+                try:
+                    date_obj = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                    formatted_date = date_obj.strftime('%Y-%m-%d %H:%M')
+                except:
+                    formatted_date = published_at
+            
+            html_content += f"""
+            <div class="news-item">
+                <div class="news-title">{i}. {title}</div>
+                <div class="news-source">📰 출처: {source}</div>
+                <div class="news-date">🕒 {formatted_date}</div>
+                <div class="news-description">{description}</div>
+                <a href="{url}" class="news-link" target="_blank">원문 보기 →</a>
+            </div>
+            """
+        
+        html_content += """
+            <div class="footer">
+                <p>이 뉴스 요약은 뉴스 챗봇에서 자동 생성되었습니다.</p>
+                <p>더 자세한 정보는 각 뉴스의 원문을 확인해주세요.</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # 이메일 메시지 생성
+        msg = MIMEMultipart('alternative')
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        msg['Subject'] = subject
+        
+        # HTML 파트 추가
+        html_part = MIMEText(html_content, 'html', 'utf-8')
+        msg.attach(html_part)
+        
+        # SMTP 서버 연결 및 이메일 전송
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"이메일 전송 중 오류가 발생했습니다: {str(e)}")
+        return False
+
 def get_chatbot_response(messages: List[Dict[str, str]], news_context: str) -> str:
     """OpenAI를 사용한 챗봇 응답 생성"""
     try:
@@ -247,6 +341,29 @@ def main():
         
         st.divider()
         
+        # 이메일 설정
+        st.subheader("📧 이메일 설정")
+        
+        sender_email = st.text_input(
+            "발신자 이메일:",
+            value=st.secrets.get('SENDER_EMAIL', '') or os.getenv('SENDER_EMAIL', ''),
+            placeholder="your-email@gmail.com"
+        )
+        
+        sender_password = st.text_input(
+            "발신자 이메일 비밀번호:",
+            type="password",
+            value=st.secrets.get('SENDER_PASSWORD', '') or os.getenv('SENDER_PASSWORD', ''),
+            help="Gmail의 경우 앱 비밀번호를 사용하세요"
+        )
+        
+        recipient_email = st.text_input(
+            "수신자 이메일:",
+            placeholder="recipient@example.com"
+        )
+        
+        st.divider()
+        
         # 키워드 입력
         keyword = st.text_input(
             "관심 키워드를 입력하세요:",
@@ -274,6 +391,26 @@ def main():
         if st.button("💬 채팅 초기화", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
+        
+        st.divider()
+        
+        # 이메일 전송 버튼
+        if st.session_state.news_articles and sender_email and sender_password and recipient_email:
+            if st.button("📧 뉴스 요약 이메일 전송", use_container_width=True):
+                with st.spinner("이메일을 전송하고 있습니다..."):
+                    success = send_news_email(
+                        st.session_state.news_articles,
+                        st.session_state.current_keyword,
+                        recipient_email,
+                        sender_email,
+                        sender_password
+                    )
+                    if success:
+                        st.success(f"✅ {recipient_email}로 뉴스 요약이 전송되었습니다!")
+                    else:
+                        st.error("❌ 이메일 전송에 실패했습니다.")
+        elif st.session_state.news_articles:
+            st.info("📧 이메일 전송을 위해 발신자/수신자 정보를 입력해주세요.")
     
     # 메인 화면
     st.title("📰 뉴스 챗봇")
@@ -346,6 +483,16 @@ def main():
         
         - **OpenAI API**: [OpenAI Platform](https://platform.openai.com/api-keys)
         - **NewsAPI**: [NewsAPI.org](https://newsapi.org/register) (무료 계정 가능)
+        
+        ## 📧 이메일 설정 방법
+        
+        **Gmail 사용 시:**
+        1. Google 계정 → 보안 → 2단계 인증 활성화
+        2. 앱 비밀번호 생성 (16자리)
+        3. 생성된 앱 비밀번호를 '발신자 이메일 비밀번호'에 입력
+        
+        **기타 이메일 서비스:**
+        - 각 서비스의 SMTP 설정을 확인하여 사용
         """)
 
 if __name__ == "__main__":
