@@ -1,244 +1,200 @@
 import streamlit as st
-import time
-from datetime import datetime
+import requests
 import openai
 import os
+from datetime import datetime
+import json
+from typing import List, Dict, Any
 
-# 언어별 텍스트 설정
-LANGUAGES = {
-    "한국어": {
-        "title": "🧳 여행 챗봇",
-        "language_label": "언어 선택:",
-        "destination_label": "여행지 선택:",
-        "chat_placeholder": "여행에 대해 궁금한 것을 물어보세요...",
-        "send_button": "전송",
-        "clear_button": "대화 초기화",
-        "welcome_message": "안녕하세요! 저는 여행 도우미 챗봇입니다. 선택하신 여행지에 대해 무엇이든 물어보세요!",
-        "destinations": {
-            "서울": "서울",
-            "대전": "대전", 
-            "대구": "대구",
-            "부산": "부산"
-        }
-    },
-    "English": {
-        "title": "🧳 Travel Chatbot",
-        "language_label": "Select Language:",
-        "destination_label": "Select Destination:",
-        "chat_placeholder": "Ask me anything about your travel...",
-        "send_button": "Send",
-        "clear_button": "Clear Chat",
-        "welcome_message": "Hello! I'm your travel assistant chatbot. Feel free to ask me anything about your selected destination!",
-        "destinations": {
-            "서울": "Seoul",
-            "대전": "Daejeon",
-            "대구": "Daegu", 
-            "부산": "Busan"
-        }
-    },
-    "中文": {
-        "title": "🧳 旅行聊天机器人",
-        "language_label": "选择语言:",
-        "destination_label": "选择目的地:",
-        "chat_placeholder": "请询问关于旅行的任何问题...",
-        "send_button": "发送",
-        "clear_button": "清除对话",
-        "welcome_message": "您好！我是您的旅行助手聊天机器人。请随时询问关于您选择的目的地的任何问题！",
-        "destinations": {
-            "서울": "首尔",
-            "대전": "大田",
-            "대구": "大邱",
-            "부산": "釜山"
-        }
-    },
-    "日本語": {
-        "title": "🧳 旅行チャットボット",
-        "language_label": "言語を選択:",
-        "destination_label": "目的地を選択:",
-        "chat_placeholder": "旅行について何でもお聞きください...",
-        "send_button": "送信",
-        "clear_button": "チャットをクリア",
-        "welcome_message": "こんにちは！私はあなたの旅行アシスタントチャットボットです。選択した目的地について何でもお聞きください！",
-        "destinations": {
-            "서울": "ソウル",
-            "대전": "大田",
-            "대구": "大邱",
-            "부산": "釜山"
-        }
-    }
-}
+# 페이지 설정
+st.set_page_config(
+    page_title="뉴스 챗봇",
+    page_icon="📰",
+    layout="wide"
+)
 
-# 여행지별 정보 데이터베이스
-DESTINATION_INFO = {
-    "서울": {
-        "한국어": {
-            "attractions": ["경복궁", "명동", "홍대", "강남", "북촌한옥마을", "남산타워", "동대문"],
-            "food": ["김치찌개", "불고기", "비빔밥", "치킨", "떡볶이", "한정식"],
-            "transport": "지하철 1-9호선, 버스, 택시가 잘 발달되어 있습니다.",
-            "weather": "사계절이 뚜렷하며, 봄과 가을이 여행하기 좋습니다."
-        },
-        "English": {
-            "attractions": ["Gyeongbokgung Palace", "Myeongdong", "Hongdae", "Gangnam", "Bukchon Hanok Village", "N Seoul Tower", "Dongdaemun"],
-            "food": ["Kimchi Jjigae", "Bulgogi", "Bibimbap", "Korean Fried Chicken", "Tteokbokki", "Korean Traditional Meal"],
-            "transport": "Well-developed subway lines 1-9, buses, and taxis are available.",
-            "weather": "Four distinct seasons, spring and autumn are the best times to visit."
-        },
-        "中文": {
-            "attractions": ["景福宫", "明洞", "弘大", "江南", "北村韩屋村", "南山塔", "东大门"],
-            "food": ["泡菜汤", "烤肉", "拌饭", "炸鸡", "年糕", "韩定食"],
-            "transport": "地铁1-9号线、公交车、出租车交通发达。",
-            "weather": "四季分明，春秋两季最适合旅游。"
-        },
-        "日本語": {
-            "attractions": ["景福宮", "明洞", "弘大", "江南", "北村韓屋村", "Nソウルタワー", "東大門"],
-            "food": ["キムチチゲ", "プルコギ", "ビビンバ", "チキン", "トッポッキ", "韓定食"],
-            "transport": "地下鉄1-9号線、バス、タクシーが発達しています。",
-            "weather": "四季がはっきりしており、春と秋が旅行に最適です。"
-        }
-    },
-    "대전": {
-        "한국어": {
-            "attractions": ["엑스포과학공원", "대청호", "계룡산국립공원", "한밭수목원", "대전오월드"],
-            "food": ["성심당 튀김소보로", "대전 칼국수", "충청도 향토음식"],
-            "transport": "지하철 1호선과 버스 교통이 편리합니다.",
-            "weather": "내륙 기후로 여름은 덥고 겨울은 춥습니다."
-        },
-        "English": {
-            "attractions": ["Expo Science Park", "Daecheong Lake", "Gyeryongsan National Park", "Hanbat Arboretum", "Daejeon O-World"],
-            "food": ["Sungsimdang Fried Soboro", "Daejeon Kalguksu", "Chungcheong Local Cuisine"],
-            "transport": "Convenient subway line 1 and bus transportation.",
-            "weather": "Continental climate with hot summers and cold winters."
-        },
-        "中文": {
-            "attractions": ["世博科学公园", "大清湖", "鸡龙山国立公园", "韩밭树木园", "大田O-World"],
-            "food": ["圣心堂炸面包", "大田刀削面", "忠清道乡土料理"],
-            "transport": "地铁1号线和公交车交通便利。",
-            "weather": "内陆气候，夏季炎热，冬季寒冷。"
-        },
-        "日本語": {
-            "attractions": ["エキスポ科学公園", "大清湖", "鶏龍山国立公園", "ハンバッ樹木園", "大田Oワールド"],
-            "food": ["聖心堂揚げソボロ", "大田カルグクス", "忠清道郷土料理"],
-            "transport": "地下鉄1号線とバス交通が便利です。",
-            "weather": "内陸気候で夏は暑く冬は寒いです。"
-        }
-    },
-    "대구": {
-        "한국어": {
-            "attractions": ["동성로", "서문시장", "팔공산", "앞산공원", "김광석다시그리기길"],
-            "food": ["대구 찜갈비", "막창", "동인동 찜갈비", "납작만두"],
-            "transport": "지하철 1-3호선과 버스가 운행됩니다.",
-            "weather": "분지 지형으로 여름이 매우 덥습니다."
-        },
-        "English": {
-            "attractions": ["Dongseongno", "Seomun Market", "Palgongsan", "Apsan Park", "Kim Gwangseok Street"],
-            "food": ["Daegu Steamed Ribs", "Makchang", "Dongin-dong Steamed Ribs", "Flat Dumplings"],
-            "transport": "Subway lines 1-3 and buses are available.",
-            "weather": "Basin topography makes summers very hot."
-        },
-        "中文": {
-            "attractions": ["东城路", "西门市场", "八公山", "앞山公园", "金光石重绘街"],
-            "food": ["大邱蒸排骨", "烤肠", "东仁洞蒸排骨", "扁饺子"],
-            "transport": "地铁1-3号线和公交车运营。",
-            "weather": "盆地地形，夏季非常炎热。"
-        },
-        "日本語": {
-            "attractions": ["東城路", "西門市場", "八公山", "앞山公園", "キム・グァンソク通り"],
-            "food": ["大邱蒸しカルビ", "マクチャン", "東仁洞蒸しカルビ", "平たい餃子"],
-            "transport": "地下鉄1-3号線とバスが運行しています。",
-            "weather": "盆地地形で夏は非常に暑いです。"
-        }
-    },
-    "부산": {
-        "한국어": {
-            "attractions": ["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "태종대", "부산타워"],
-            "food": ["돼지국밥", "밀면", "씨앗호떡", "회", "부산어묵"],
-            "transport": "지하철 1-4호선, 버스, 해운대 해변열차가 있습니다.",
-            "weather": "해양성 기후로 온화하며 여름 휴양지로 인기입니다."
-        },
-        "English": {
-            "attractions": ["Haeundae Beach", "Gwangalli Beach", "Gamcheon Culture Village", "Jagalchi Market", "Taejongdae", "Busan Tower"],
-            "food": ["Pork Soup Rice", "Milmyeon", "Seed Hotteok", "Raw Fish", "Busan Fish Cake"],
-            "transport": "Subway lines 1-4, buses, and Haeundae Beach Train are available.",
-            "weather": "Maritime climate, mild and popular summer resort destination."
-        },
-        "中文": {
-            "attractions": ["海云台海水浴场", "广安里海水浴场", "甘川文化村", "札嘎其市场", "太宗台", "釜山塔"],
-            "food": ["猪肉汤饭", "冷面", "种子糖饼", "生鱼片", "釜山鱼糕"],
-            "transport": "地铁1-4号线、公交车、海云台海滩列车。",
-            "weather": "海洋性气候温和，是受欢迎的夏季度假胜地。"
-        },
-        "日本語": {
-            "attractions": ["海雲台ビーチ", "広安里ビーチ", "甘川文化村", "チャガルチ市場", "太宗台", "釜山タワー"],
-            "food": ["豚クッパ", "ミルミョン", "種ホットク", "刺身", "釜山かまぼこ"],
-            "transport": "地下鉄1-4号線、バス、海雲台ビーチトレインがあります。",
-            "weather": "海洋性気候で温暖、夏のリゾート地として人気です。"
-        }
-    }
-}
-
-def get_system_prompt(destination, language):
-    """언어와 목적지에 따른 시스템 프롬프트 생성"""
-    dest_info = DESTINATION_INFO.get(destination, {}).get(language, {})
-    
-    if language == "한국어":
-        return f"""당신은 {destination} 여행 전문 가이드입니다. 다음 정보를 바탕으로 친절하고 도움이 되는 답변을 해주세요:
-
-주요 관광지: {', '.join(dest_info.get('attractions', []))}
-대표 음식: {', '.join(dest_info.get('food', []))}
-교통 정보: {dest_info.get('transport', '')}
-날씨 정보: {dest_info.get('weather', '')}
-
-사용자의 질문에 대해 구체적이고 실용적인 정보를 제공하며, 추가 질문을 유도하는 친근한 톤으로 답변해주세요."""
-    elif language == "English":
-        return f"""You are a travel guide specialist for {destination}. Please provide helpful and friendly responses based on the following information:
-
-Major attractions: {', '.join(dest_info.get('attractions', []))}
-Representative foods: {', '.join(dest_info.get('food', []))}
-Transportation info: {dest_info.get('transport', '')}
-Weather info: {dest_info.get('weather', '')}
-
-Provide specific and practical information for user questions, and respond in a friendly tone that encourages further questions."""
-    elif language == "中文":
-        return f"""您是{destination}的旅游专业向导。请根据以下信息提供有用和友好的回答：
-
-主要景点：{', '.join(dest_info.get('attractions', []))}
-代表性美食：{', '.join(dest_info.get('food', []))}
-交通信息：{dest_info.get('transport', '')}
-天气信息：{dest_info.get('weather', '')}
-
-请为用户问题提供具体实用的信息，并以友好的语调回答，鼓励进一步提问。"""
-    elif language == "日本語":
-        return f"""{destination}の旅行専門ガイドです。以下の情報に基づいて、親切で役立つ回答をしてください：
-
-主要観光地：{', '.join(dest_info.get('attractions', []))}
-代表的な料理：{', '.join(dest_info.get('food', []))}
-交通情報：{dest_info.get('transport', '')}
-天気情報：{dest_info.get('weather', '')}
-
-ユーザーの質問に対して具体的で実用的な情報を提供し、さらなる質問を促すフレンドリーなトーンで回答してください。"""
-
-def get_chatbot_response(messages, destination, language):
-    """OpenAI GPT-4o Mini를 사용한 챗봇 응답 생성"""
+def get_news_from_newsapi(keyword: str, api_key: str) -> List[Dict[str, Any]]:
+    """NewsAPI를 사용하여 뉴스 검색"""
     try:
-        # OpenAI API 키 확인 (Streamlit secrets 우선, 환경변수 대체)
+        url = "https://newsapi.org/v2/everything"
+        params = {
+            'q': keyword,
+            'language': 'ko',
+            'sortBy': 'publishedAt',
+            'pageSize': 10,
+            'apiKey': api_key
+        }
+        
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        return data.get('articles', [])
+    
+    except Exception as e:
+        st.error(f"뉴스 검색 중 오류가 발생했습니다: {str(e)}")
+        return []
+
+def get_news_from_guardian(keyword: str, api_key: str) -> List[Dict[str, Any]]:
+    """Guardian API를 사용하여 뉴스 검색 (대체 API)"""
+    try:
+        url = "https://content.guardianapis.com/search"
+        params = {
+            'q': keyword,
+            'page-size': 10,
+            'show-fields': 'thumbnail,trailText,headline',
+            'api-key': api_key
+        }
+        
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        articles = []
+        
+        for item in data.get('response', {}).get('results', []):
+            article = {
+                'title': item.get('webTitle', ''),
+                'description': item.get('fields', {}).get('trailText', ''),
+                'url': item.get('webUrl', ''),
+                'urlToImage': item.get('fields', {}).get('thumbnail', ''),
+                'source': {'name': 'The Guardian'},
+                'publishedAt': item.get('webPublicationDate', '')
+            }
+            articles.append(article)
+        
+        return articles
+    
+    except Exception as e:
+        st.error(f"Guardian API 뉴스 검색 중 오류가 발생했습니다: {str(e)}")
+        return []
+
+def get_mock_news(keyword: str) -> List[Dict[str, Any]]:
+    """API 키가 없을 때 사용할 모의 뉴스 데이터"""
+    mock_articles = [
+        {
+            'title': f'{keyword} 관련 최신 뉴스 1',
+            'description': f'{keyword}에 대한 중요한 소식이 전해졌습니다. 관련 업계에서는 이번 발표가 향후 시장에 큰 영향을 미칠 것으로 예상한다고 밝혔습니다.',
+            'url': 'https://example.com/news1',
+            'urlToImage': 'https://via.placeholder.com/300x200?text=News+1',
+            'source': {'name': '뉴스 소스 1'},
+            'publishedAt': '2024-01-15T10:00:00Z'
+        },
+        {
+            'title': f'{keyword} 관련 최신 뉴스 2',
+            'description': f'{keyword} 분야의 새로운 동향이 발표되었습니다. 전문가들은 이러한 변화가 긍정적인 결과를 가져올 것이라고 전망하고 있습니다.',
+            'url': 'https://example.com/news2',
+            'urlToImage': 'https://via.placeholder.com/300x200?text=News+2',
+            'source': {'name': '뉴스 소스 2'},
+            'publishedAt': '2024-01-15T09:30:00Z'
+        },
+        {
+            'title': f'{keyword} 관련 최신 뉴스 3',
+            'description': f'{keyword}와 관련된 정책 변화가 논의되고 있습니다. 이번 변화는 많은 사람들에게 직접적인 영향을 미칠 것으로 예상됩니다.',
+            'url': 'https://example.com/news3',
+            'urlToImage': 'https://via.placeholder.com/300x200?text=News+3',
+            'source': {'name': '뉴스 소스 3'},
+            'publishedAt': '2024-01-15T09:00:00Z'
+        }
+    ]
+    
+    # 키워드에 따라 10개까지 확장
+    extended_articles = []
+    for i in range(10):
+        article = mock_articles[i % len(mock_articles)].copy()
+        article['title'] = f'{keyword} 관련 최신 뉴스 {i+1}'
+        article['description'] = f'{keyword}에 대한 뉴스 {i+1}번입니다. ' + article['description'][:80] + '...'
+        article['urlToImage'] = f'https://via.placeholder.com/300x200?text=News+{i+1}'
+        extended_articles.append(article)
+    
+    return extended_articles
+
+def truncate_text(text: str, max_length: int = 100) -> str:
+    """텍스트를 지정된 길이로 자르기"""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length-3] + "..."
+
+def display_news_grid(articles: List[Dict[str, Any]]):
+    """뉴스를 그리드 형태로 표시"""
+    if not articles:
+        st.warning("검색된 뉴스가 없습니다.")
+        return
+    
+    # 2열 그리드로 뉴스 표시
+    for i in range(0, len(articles), 2):
+        col1, col2 = st.columns(2)
+        
+        # 첫 번째 열
+        if i < len(articles):
+            with col1:
+                display_news_card(articles[i], i)
+        
+        # 두 번째 열
+        if i + 1 < len(articles):
+            with col2:
+                display_news_card(articles[i + 1], i + 1)
+
+def display_news_card(article: Dict[str, Any], index: int):
+    """개별 뉴스 카드 표시"""
+    with st.container():
+        st.markdown("---")
+        
+        # 썸네일 이미지
+        if article.get('urlToImage'):
+            try:
+                st.image(article['urlToImage'], width=300)
+            except:
+                st.image('https://via.placeholder.com/300x200?text=No+Image', width=300)
+        else:
+            st.image('https://via.placeholder.com/300x200?text=No+Image', width=300)
+        
+        # 제목
+        st.subheader(article.get('title', '제목 없음'))
+        
+        # 출처
+        source_name = article.get('source', {}).get('name', '출처 불명')
+        st.caption(f"📰 출처: {source_name}")
+        
+        # 발행일
+        published_at = article.get('publishedAt', '')
+        if published_at:
+            try:
+                date_obj = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                formatted_date = date_obj.strftime('%Y-%m-%d %H:%M')
+                st.caption(f"🕒 {formatted_date}")
+            except:
+                st.caption(f"🕒 {published_at}")
+        
+        # 내용 요약 (100자)
+        description = article.get('description', '내용 없음')
+        truncated_description = truncate_text(description, 100)
+        st.write(truncated_description)
+        
+        # 원문 링크
+        if article.get('url'):
+            st.markdown(f"[원문 보기]({article['url']})")
+
+def get_chatbot_response(messages: List[Dict[str, str]], news_context: str) -> str:
+    """OpenAI를 사용한 챗봇 응답 생성"""
+    try:
+        # API 키 확인
         api_key = st.secrets.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY')
         if not api_key:
-            if language == "한국어":
-                return "OpenAI API 키가 설정되지 않았습니다. 사이드바에서 API 키를 입력하거나 환경변수 OPENAI_API_KEY를 설정해주세요."
-            elif language == "English":
-                return "OpenAI API key is not set. Please enter your API key in the sidebar or set the OPENAI_API_KEY environment variable."
-            elif language == "中文":
-                return "未设置OpenAI API密钥。请在侧边栏输入API密钥或设置OPENAI_API_KEY环境变量。"
-            elif language == "日本語":
-                return "OpenAI APIキーが設定されていません。サイドバーでAPIキーを入力するか、OPENAI_API_KEY環境変数を設定してください。"
+            return "OpenAI API 키가 설정되지 않았습니다. 사이드바에서 API 키를 입력하거나 환경변수 OPENAI_API_KEY를 설정해주세요."
         
         # OpenAI 클라이언트 초기화
         client = openai.OpenAI(api_key=api_key)
         
         # 시스템 프롬프트 생성
-        system_prompt = get_system_prompt(destination, language)
-        
-        # 메시지 구성 (시스템 메시지 + 대화 히스토리)
+        system_prompt = f"""당신은 뉴스 분석 전문가입니다. 다음 뉴스 정보를 바탕으로 사용자의 질문에 답변해주세요:
+
+{news_context}
+
+위 뉴스들을 참고하여 정확하고 유용한 정보를 제공하며, 출처를 명시해주세요. 
+뉴스에 없는 내용에 대해서는 일반적인 지식을 바탕으로 도움이 되는 답변을 해주세요."""
+
+        # 메시지 구성
         api_messages = [{"role": "system", "content": system_prompt}]
         api_messages.extend(messages)
         
@@ -253,126 +209,144 @@ def get_chatbot_response(messages, destination, language):
         return response.choices[0].message.content
         
     except Exception as e:
-        if language == "한국어":
-            return f"죄송합니다. 응답 생성 중 오류가 발생했습니다: {str(e)}"
-        elif language == "English":
-            return f"Sorry, an error occurred while generating the response: {str(e)}"
-        elif language == "中文":
-            return f"抱歉，生成回答时发生错误：{str(e)}"
-        elif language == "日本語":
-            return f"申し訳ございません。回答生成中にエラーが発生しました：{str(e)}"
+        return f"죄송합니다. 응답 생성 중 오류가 발생했습니다: {str(e)}"
 
 def main():
-    st.set_page_config(
-        page_title="Travel Chatbot",
-        page_icon="🧳",
-        layout="wide"
-    )
-    
     # 세션 상태 초기화
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "language" not in st.session_state:
-        st.session_state.language = "한국어"
-    if "destination" not in st.session_state:
-        st.session_state.destination = "서울"
-    if "api_key_set" not in st.session_state:
-        st.session_state.api_key_set = bool(st.secrets.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY'))
+    if "news_articles" not in st.session_state:
+        st.session_state.news_articles = []
+    if "current_keyword" not in st.session_state:
+        st.session_state.current_keyword = ""
     
-    # 사이드바 설정
+    # 사이드바
     with st.sidebar:
-        st.header("⚙️ Settings")
+        st.header("🔍 뉴스 검색")
         
-        # OpenAI API 키 설정
-        st.subheader("🔑 OpenAI API Key")
-        api_key_input = st.text_input(
-            "Enter your OpenAI API Key:",
+        # API 키 설정
+        st.subheader("🔑 API Keys")
+        
+        # OpenAI API 키
+        openai_key = st.text_input(
+            "OpenAI API Key:",
             type="password",
             value=st.secrets.get('OPENAI_API_KEY', '') or os.getenv('OPENAI_API_KEY', ''),
-            help="Get your API key from https://platform.openai.com/api-keys"
+            help="챗봇 기능을 위한 OpenAI API 키"
         )
+        if openai_key:
+            os.environ['OPENAI_API_KEY'] = openai_key
         
-        if api_key_input:
-            os.environ['OPENAI_API_KEY'] = api_key_input
-            st.session_state.api_key_set = True
-            st.success("✅ API Key set successfully!")
-        elif not st.session_state.api_key_set:
-            st.warning("⚠️ Please enter your OpenAI API Key to use the chatbot.")
+        # NewsAPI 키
+        news_api_key = st.text_input(
+            "NewsAPI Key (선택사항):",
+            type="password",
+            value=st.secrets.get('NEWS_API_KEY', '') or os.getenv('NEWS_API_KEY', ''),
+            help="실제 뉴스 검색을 위한 NewsAPI 키 (없으면 모의 데이터 사용)"
+        )
         
         st.divider()
         
-        # 언어 선택
-        language = st.selectbox(
-            "Language / 언어 / 语言 / 言語:",
-            ["한국어", "English", "中文", "日本語"],
-            index=["한국어", "English", "中文", "日본語"].index(st.session_state.language)
+        # 키워드 입력
+        keyword = st.text_input(
+            "관심 키워드를 입력하세요:",
+            value=st.session_state.current_keyword,
+            placeholder="예: 인공지능, 경제, 스포츠"
         )
         
-        # 언어가 변경되면 세션 상태 업데이트
-        if language != st.session_state.language:
-            st.session_state.language = language
-            st.rerun()
+        # 검색 버튼
+        if st.button("🔍 뉴스 검색", use_container_width=True):
+            if keyword:
+                with st.spinner("뉴스를 검색하고 있습니다..."):
+                    if news_api_key:
+                        articles = get_news_from_newsapi(keyword, news_api_key)
+                    else:
+                        articles = get_mock_news(keyword)
+                    
+                    st.session_state.news_articles = articles
+                    st.session_state.current_keyword = keyword
+                    st.session_state.messages = []  # 새 검색 시 채팅 초기화
+                    st.rerun()
+            else:
+                st.warning("키워드를 입력해주세요.")
         
-        # 현재 언어의 텍스트 가져오기
-        texts = LANGUAGES[language]
-        
-        # 여행지 선택
-        destination = st.selectbox(
-            texts["destination_label"],
-            ["서울", "대전", "대구", "부산"],
-            format_func=lambda x: texts["destinations"][x],
-            index=["서울", "대전", "대구", "부산"].index(st.session_state.destination)
-        )
-        
-        # 여행지가 변경되면 세션 상태 업데이트
-        if destination != st.session_state.destination:
-            st.session_state.destination = destination
-            st.rerun()
-        
-        # 대화 초기화 버튼
-        if st.button(texts["clear_button"], use_container_width=True):
+        # 채팅 초기화 버튼
+        if st.button("💬 채팅 초기화", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
     
     # 메인 화면
-    st.title(texts["title"])
-    st.markdown(f"**{texts['destination_label']}** {texts['destinations'][destination]}")
+    st.title("📰 뉴스 챗봇")
     
-    # 채팅 히스토리 표시
-    chat_container = st.container()
+    if st.session_state.current_keyword:
+        st.subheader(f"'{st.session_state.current_keyword}' 관련 최신 뉴스")
+        
+        # 뉴스와 채팅을 나란히 배치
+        news_col, chat_col = st.columns([3, 2])
+        
+        with news_col:
+            st.markdown("### 📰 뉴스 목록")
+            display_news_grid(st.session_state.news_articles)
+        
+        with chat_col:
+            st.markdown("### 💬 뉴스 챗봇")
+            
+            # 채팅 히스토리 표시
+            chat_container = st.container()
+            with chat_container:
+                if not st.session_state.messages:
+                    with st.chat_message("assistant"):
+                        st.write(f"안녕하세요! '{st.session_state.current_keyword}' 관련 뉴스에 대해 궁금한 것이 있으시면 언제든 물어보세요!")
+                
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
+            
+            # 사용자 입력
+            if prompt := st.chat_input("뉴스에 대해 궁금한 것을 물어보세요..."):
+                # 사용자 메시지 추가
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                
+                # 사용자 메시지 표시
+                with st.chat_message("user"):
+                    st.write(prompt)
+                
+                # 뉴스 컨텍스트 생성
+                news_context = ""
+                for i, article in enumerate(st.session_state.news_articles):
+                    news_context += f"\n뉴스 {i+1}:\n"
+                    news_context += f"제목: {article.get('title', '')}\n"
+                    news_context += f"출처: {article.get('source', {}).get('name', '')}\n"
+                    news_context += f"내용: {truncate_text(article.get('description', ''), 200)}\n"
+                
+                # 챗봇 응답 생성
+                with st.chat_message("assistant"):
+                    with st.spinner("답변을 생성하고 있습니다..."):
+                        response = get_chatbot_response(st.session_state.messages, news_context)
+                        st.write(response)
+                
+                # 챗봇 응답 추가
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.rerun()
     
-    with chat_container:
-        # 환영 메시지 (대화가 비어있을 때만)
-        if not st.session_state.messages:
-            with st.chat_message("assistant"):
-                st.write(texts["welcome_message"])
+    else:
+        st.info("좌측 사이드바에서 관심 키워드를 입력하고 검색 버튼을 눌러주세요.")
         
-        # 기존 메시지들 표시
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-    
-    # 사용자 입력
-    if prompt := st.chat_input(texts["chat_placeholder"]):
-        # 사용자 메시지 추가
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # 사용법 안내
+        st.markdown("""
+        ## 📋 사용법
         
-        # 사용자 메시지 표시
-        with st.chat_message("user"):
-            st.write(prompt)
+        1. **API 키 설정**: 사이드바에서 OpenAI API 키를 입력하세요 (필수)
+        2. **NewsAPI 키**: 실제 뉴스 검색을 원하면 NewsAPI 키를 입력하세요 (선택사항)
+        3. **키워드 입력**: 관심있는 키워드를 입력하고 검색하세요
+        4. **뉴스 확인**: 최신 뉴스 10개가 그리드 형태로 표시됩니다
+        5. **챗봇 질문**: 우측 채팅창에서 뉴스에 대해 질문하세요
         
-        # 챗봇 응답 생성
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                # OpenAI API를 사용하여 응답 생성
-                response = get_chatbot_response(st.session_state.messages, destination, language)
-                st.write(response)
+        ## 🔑 API 키 발급 방법
         
-        # 챗봇 응답 추가
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        # 화면 새로고침
-        st.rerun()
+        - **OpenAI API**: [OpenAI Platform](https://platform.openai.com/api-keys)
+        - **NewsAPI**: [NewsAPI.org](https://newsapi.org/register) (무료 계정 가능)
+        """)
 
 if __name__ == "__main__":
     main()
