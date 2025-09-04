@@ -3,10 +3,6 @@ import time
 from datetime import datetime
 import openai
 import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # 언어별 텍스트 설정
 LANGUAGES = {
@@ -224,17 +220,17 @@ Provide specific and practical information for user questions, and respond in a 
 def get_chatbot_response(messages, destination, language):
     """OpenAI GPT-4o Mini를 사용한 챗봇 응답 생성"""
     try:
-        # OpenAI API 키 확인
-        api_key = os.getenv('OPENAI_API_KEY')
+        # OpenAI API 키 확인 (Streamlit secrets 우선, 환경변수 대체)
+        api_key = st.secrets.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY')
         if not api_key:
             if language == "한국어":
-                return "OpenAI API 키가 설정되지 않았습니다. .env 파일에 OPENAI_API_KEY를 설정해주세요."
+                return "OpenAI API 키가 설정되지 않았습니다. 사이드바에서 API 키를 입력하거나 환경변수 OPENAI_API_KEY를 설정해주세요."
             elif language == "English":
-                return "OpenAI API key is not set. Please set OPENAI_API_KEY in your .env file."
+                return "OpenAI API key is not set. Please enter your API key in the sidebar or set the OPENAI_API_KEY environment variable."
             elif language == "中文":
-                return "未设置OpenAI API密钥。请在.env文件中设置OPENAI_API_KEY。"
+                return "未设置OpenAI API密钥。请在侧边栏输入API密钥或设置OPENAI_API_KEY环境变量。"
             elif language == "日本語":
-                return "OpenAI APIキーが設定されていません。.envファイルでOPENAI_API_KEYを設定してください。"
+                return "OpenAI APIキーが設定されていません。サイドバーでAPIキーを入力するか、OPENAI_API_KEY環境変数を設定してください。"
         
         # OpenAI 클라이언트 초기화
         client = openai.OpenAI(api_key=api_key)
@@ -281,7 +277,7 @@ def main():
     if "destination" not in st.session_state:
         st.session_state.destination = "서울"
     if "api_key_set" not in st.session_state:
-        st.session_state.api_key_set = bool(os.getenv('OPENAI_API_KEY'))
+        st.session_state.api_key_set = bool(st.secrets.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY'))
     
     # 사이드바 설정
     with st.sidebar:
@@ -292,7 +288,7 @@ def main():
         api_key_input = st.text_input(
             "Enter your OpenAI API Key:",
             type="password",
-            value=os.getenv('OPENAI_API_KEY', ''),
+            value=st.secrets.get('OPENAI_API_KEY', '') or os.getenv('OPENAI_API_KEY', ''),
             help="Get your API key from https://platform.openai.com/api-keys"
         )
         
